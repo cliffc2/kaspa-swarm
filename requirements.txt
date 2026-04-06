@@ -1,0 +1,9 @@
+
+**`requirements.txt`** (new, at root)
+
+```txt
+websockets
+click
+web3
+asyncio
+python-dotenv
