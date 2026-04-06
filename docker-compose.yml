@@ -2,112 +2,33 @@ version: '3.8'
 
 services:
   kaswallet-daemon:
-    build:
-      context: ./cli-tools/kaswallet
-      dockerfile: Dockerfile
-    command: --testnet --rpc
+    image: ghcr.io/igralabs/kaswallet:latest   # or build from source
+    command: --testnet-12 --rpclisten=0.0.0.0:16110
     volumes:
-      - kaswallet-data:/root/.kaswallet
+      - ./data/kaswallet:/root/.kaswallet
     ports:
       - "16110:16110"
-    restart: unless-stopped
-    networks:
-      - swarm-net
 
-  eth-gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile.eth
-    command: python -m eth_swap_cli daemon
-    environment:
-      - ETH_RPC_URL=${ETH_RPC_URL:-https://sepolia.infura.io/v3/YOUR_KEY}
-      - HTLC_CONTRACT=${HTLC_CONTRACT:-0x0000000000000000000000000000000000000000}
-      - ETH_PRIVATE_KEY=${ETH_PRIVATE_KEY}
+  mesh-coordinator:
+    build: .
+    command: python -m kaspa_mesh_agent.core --node-type coordinator
     volumes:
-      - ./lp-ledger.json:/app/lp-ledger.json
-    restart: unless-stopped
-    networks:
-      - swarm-net
-
-  mesh-agent-coordinator:
-    build:
-      context: ./kaspa_mesh_agent
-      dockerfile: Dockerfile
-    command: python -m kaspa_mesh_agent.kaspa_mesh_agent_lr2021
+      - .:/app
+    environment:
+      - PYTHONPATH=/app
     depends_on:
       - kaswallet-daemon
+
+  monitor:
+    build: .
+    command: python -m kaspa_mesh_agent.core --node-type monitor
     volumes:
-      - ./lp-ledger.json:/app/lp-ledger.json
-      - ./kaspa_mesh_cache:/app/kaspa_mesh_cache
+      - .:/app
+    depends_on:
+      - kaswallet-daemon
+
+  ws-relay:
+    build: .
+    command: python -m ws_relay   # optional simple WS server if needed
     ports:
-      - "8000:8000"
-    environment:
-      - NODE_TYPE=coordinator
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - MESHTASTIC_SERIAL_PORT=${MESHTASTIC_SERIAL_PORT:-}
-    restart: unless-stopped
-    networks:
-      - swarm-net
-
-  mesh-agent-signer:
-    build:
-      context: ./kaspa_mesh_agent
-      dockerfile: Dockerfile
-    command: python -m kaspa_mesh_agent.kaspa_mesh_agent_lr2021
-    depends_on:
-      - kaswallet-daemon
-    volumes:
-      - signer-keys:/root/.kaswallet
-      - ./lp-ledger.json:/app/lp-ledger.json
-    environment:
-      - NODE_TYPE=signer
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-    restart: unless-stopped
-    networks:
-      - swarm-net
-
-  mesh-agent-monitor:
-    build:
-      context: ./kaspa_mesh_agent
-      dockerfile: Dockerfile
-    command: python -m kaspa_mesh_agent.kaspa_mesh_agent_lr2021
-    depends_on:
-      - kaswallet-daemon
-      - eth-gateway
-    volumes:
-      - ./lp-ledger.json:/app/lp-ledger.json
-    environment:
-      - NODE_TYPE=monitor
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - ETH_RPC_URL=${ETH_RPC_URL}
-    restart: unless-stopped
-    networks:
-      - swarm-net
-
-  mesh-agent-gateway:
-    build:
-      context: ./kaspa_mesh_agent
-      dockerfile: Dockerfile
-    command: python -m kaspa_mesh_agent.kaspa_mesh_agent_lr2021
-    depends_on:
-      - kaswallet-daemon
-      - eth-gateway
-    volumes:
-      - ./lp-ledger.json:/app/lp-ledger.json
-    ports:
-      - "8001:8001"
-    environment:
-      - NODE_TYPE=gateway
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - MESHTASTIC_SERIAL_PORT=${MESHTASTIC_SERIAL_PORT:-}
-    restart: unless-stopped
-    networks:
-      - swarm-net
-
-volumes:
-  kaswallet-data:
-  signer-keys:
-
-networks:
-  swarm-net:
-    driver: bridge
+      - "8765:8765"

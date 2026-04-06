@@ -4,18 +4,19 @@
     "rpc_url": "https://testnet-12-rpc.kaspa.org",
     "network_flag": "testnet-12",
     "timelock_blocks": 14400,
-    "liquidity_address": "kaspa:YOUR_TESTNET_LIQUIDITY_ADDRESS_HERE"
+    "liquidity_address": "kaspa:YOUR_TESTNET_LIQUIDITY_ADDRESS"
   },
   "eth": {
     "network": "sepolia",
-    "rpc_url": "https://sepolia.infura.io/v3/YOUR_KEY_HERE",
-    "htlc_contract": "0xYOUR_DEPLOYED_HTLC_ON_SEPOLIA",
+    "rpc_url": "https://sepolia.infura.io/v3/YOUR_INFURA_KEY",
+    "htlc_contract": "0xYOUR_SEPOLIA_HTLC_ADDRESS",
     "timelock_seconds": 14400
   },
   "pool": {
     "min_slip_bps": 10,
     "operator_cut_bps": 150,
-    "max_swap_percent_of_pool": 5
+    "affiliate_cut_bps": 0,
+    "max_swap_percent": 5
   },
   "ledger_path": "./lp-ledger-testnet12.json"
 }
