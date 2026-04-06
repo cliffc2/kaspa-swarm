@@ -1,0 +1,11 @@
+.ruff_cache/
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+config.json
+lp-ledger.json
+.env
+*.log
