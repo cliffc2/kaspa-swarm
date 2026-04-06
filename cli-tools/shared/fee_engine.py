@@ -1,137 +1,61 @@
-"""
-THORChain-style Continuous Liquidity Pool (CLP) fee engine.
-Exact slip-based liquidity fee formula: fee = (x² * Y) / (x + X)²
-where x = input amount, X = input pool depth, Y = output pool depth.
-"""
+# cli-tools/shared/fee_engine.py
+from decimal import Decimal, getcontext
+from typing import Dict
 
-from decimal import Decimal, getcontext, ROUND_DOWN
-
-getcontext().prec = 28
+getcontext().prec = 36
 
 
 def calculate_slip_fee(
-    input_amount: Decimal, input_depth: Decimal, output_depth: Decimal
+    input_amount: Decimal, input_pool_depth: Decimal, output_pool_depth: Decimal
 ) -> Decimal:
-    """
-    THORChain CLP liquidity fee.
-    fee = (x² * Y) / (x + X)²
-    """
-    if input_depth <= 0 or output_depth <= 0:
+    """THORChain-style liquidity fee: fee = (x² * Y) / (x + X)²"""
+    if input_pool_depth <= 0 or output_pool_depth <= 0:
         return Decimal("0")
     x = input_amount
-    X = input_depth
-    Y = output_depth
-    fee = (x * x * Y) / ((x + X) * (x + X))
-    return fee
+    X = input_pool_depth
+    Y = output_pool_depth
+    fee = (x * x * Y) / ((x + X) ** 2)
+    return fee.quantize(Decimal("0.00000001"))
 
 
-def calculate_output_with_fee(
+def calculate_quote(
     input_amount: Decimal,
     input_depth: Decimal,
     output_depth: Decimal,
-    min_slip_bps: int = 5,
+    min_slip_bps: int = 10,
     operator_cut_bps: int = 150,
-    affiliate_cut_bps: int = 0,
-) -> dict:
-    """
-    Calculate expected output after all fees.
-    Returns full breakdown for transparency.
-    """
+) -> Dict:
     if input_depth <= 0 or output_depth <= 0:
-        return {
-            "expected_output": "0",
-            "liquidity_fee": "0",
-            "operator_cut": "0",
-            "affiliate_cut": "0",
-            "slip_bps": 0,
-            "total_fee_bps": 0,
-            "price_impact": "0",
-        }
+        base_output = Decimal("0")
+    else:
+        base_output = (input_amount * output_depth) / (input_amount + input_depth)
 
-    x = input_amount
-    X = input_depth
-    Y = output_depth
-
-    base_output = (x * Y) / (x + X)
-    liquidity_fee = calculate_slip_fee(x, X, Y)
+    liquidity_fee = calculate_slip_fee(input_amount, input_depth, output_depth)
     final_output = base_output - liquidity_fee
 
-    slip_percent = (x / (x + X)) * Decimal("10000")
-    slip_bps = float(slip_percent.quantize(Decimal("0.01")))
+    # Apply operator cut on the liquidity fee
+    operator_cut = liquidity_fee * Decimal(operator_cut_bps) / Decimal(10000)
+    net_fee_to_pool = liquidity_fee - operator_cut
 
-    effective_slip_bps = max(slip_bps, min_slip_bps)
-    effective_fee = (Decimal(str(effective_slip_bps)) / Decimal("10000")) * base_output
+    slip_bps = (
+        float((input_amount / (input_amount + input_depth)) * 10000)
+        if (input_amount + input_depth) > 0
+        else 0.0
+    )
 
-    operator_cut = effective_fee * Decimal(str(operator_cut_bps)) / Decimal("10000")
-    affiliate_cut = effective_fee * Decimal(str(affiliate_cut_bps)) / Decimal("10000")
-    lp_fee = effective_fee - operator_cut - affiliate_cut
-
-    final_output = base_output - effective_fee
-
-    price_impact = (x / X) * Decimal("100")
+    total_fee_bps = max(slip_bps, float(min_slip_bps))
 
     return {
-        "expected_output": str(
-            final_output.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-        ),
-        "liquidity_fee": str(
-            effective_fee.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-        ),
-        "operator_cut": str(
-            operator_cut.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-        ),
-        "affiliate_cut": str(
-            affiliate_cut.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-        ),
-        "lp_fee": str(lp_fee.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)),
-        "slip_bps": effective_slip_bps,
-        "total_fee_bps": effective_slip_bps + operator_cut_bps + affiliate_cut_bps,
-        "price_impact": str(price_impact.quantize(Decimal("0.01"))),
-        "base_output": str(
-            base_output.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-        ),
+        "success": True,
+        "data": {
+            "input_amount": float(input_amount),
+            "expected_output": float(final_output.quantize(Decimal("0.00000001"))),
+            "liquidity_fee": float(liquidity_fee.quantize(Decimal("0.00000001"))),
+            "operator_cut": float(operator_cut.quantize(Decimal("0.00000001"))),
+            "net_fee_to_pool": float(net_fee_to_pool.quantize(Decimal("0.00000001"))),
+            "slip_bps": round(slip_bps, 2),
+            "total_fee_bps": round(total_fee_bps, 2),
+            "input_pool_depth": float(input_depth),
+            "output_pool_depth": float(output_depth),
+        },
     }
-
-
-def calculate_lp_units(
-    kas_added: Decimal,
-    eth_added: Decimal,
-    current_kas: Decimal,
-    current_eth: Decimal,
-    current_units: Decimal,
-) -> Decimal:
-    """
-    THORChain-style pool units calculation.
-    For first liquidity: units = sqrt(kas * eth) * scaling
-    For subsequent: proportional to added value
-    """
-    if current_units == 0:
-        return (kas_added * eth_added).sqrt() * Decimal("1000000")
-
-    kas_ratio = (
-        kas_added / (current_kas + kas_added) if current_kas > 0 else Decimal("0")
-    )
-    eth_ratio = (
-        eth_added / (current_eth + eth_added) if current_eth > 0 else Decimal("0")
-    )
-    avg_ratio = (kas_ratio + eth_ratio) / Decimal("2")
-
-    return current_units * avg_ratio
-
-
-def should_stream_swap(
-    input_amount: Decimal, pool_depth: Decimal, max_swap_percent: int = 5
-) -> tuple[bool, int]:
-    """
-    Check if swap should be split into multiple smaller HTLCs.
-    Returns (should_stream, num_chunks).
-    """
-    if pool_depth <= 0:
-        return False, 1
-
-    percent = (input_amount / pool_depth) * Decimal("100")
-    if percent > Decimal(str(max_swap_percent)):
-        chunks = max(4, int(percent / Decimal(str(max_swap_percent))))
-        return True, min(chunks, 8)
-
-    return False, 1
